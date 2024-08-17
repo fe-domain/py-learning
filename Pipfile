@@ -1,10 +1,24 @@
 [[source]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+verify_ssl = true
+name = "pypitunatsinghuaedu"
+
+[[source]]
 url = "https://pypi.org/simple"
 verify_ssl = true
 name = "pypi"
 
 [packages]
 pygame = "*"
+pandas = "*"
+numpy = "*"
+datasets = "*"
+nltk = "*"
+transformers = "*"
+scikit-learn = "*"
+pipeline = "*"
+torchvision = "*"
+torchaudio = "*"
 
 [dev-packages]
 black = "*"
