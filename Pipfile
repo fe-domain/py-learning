@@ -19,6 +19,10 @@ scikit-learn = "*"
 pipeline = "*"
 torchvision = "*"
 torchaudio = "*"
+rich = "*"
+sentencepiece = "*"
+langchain = "*"
+qianfan = "*"
 
 [dev-packages]
 black = "*"
@@ -29,4 +33,4 @@ pytest = "*"
 pytest-cov = "*"
 
 [requires]
-python_version = "3.12"
+python_version = "3.8"

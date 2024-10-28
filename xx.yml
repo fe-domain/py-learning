@@ -1,0 +1,169 @@
+# 使用docker镜像， nodejs 12.6.0
+image: 'registry.cn-zhangjiakou.aliyuncs.com/xiaoduoai/nodejs14-with-docker-ci:v1.0.0'
+
+# 设置缓存
+cache:
+  key: ${CI_PROJECT_PATH}
+  paths:
+    - node_modules/
+  policy: pull-push
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  IMAGE_NAME_ZJK: '${REGISTRY_ZJK}/xiaoduoai/${CI_PROJECT_NAMESPACE}-${CI_PROJECT_NAME}:${CI_COMMIT_REF_NAME}'
+
+# 配置阶段
+stages:
+  - check
+  - deploy
+  - docker
+  - notice
+
+.base:
+  before_script:
+    - echo sentrycli_cdnurl=https://npmmirror.com/mirrors/sentry-cli > ~/.npmrc
+    - echo @xiaoduo:registry=http://verdaccio.xiaoduoai.com/ >> ~/.npmrc
+    - echo registry=https://registry.npmmirror.com >> ~/.npmrc
+    - cat ~/.npmrc
+    - npm install -g @xiaoduo/gitlab-ci
+    - npm install @sentry/cli@1.73.1
+    - gitlab-ci -V
+  script:
+    - gitlab-ci -V
+
+# 检查 版本号
+deploy_to_check:
+  extends: .base
+  stage: check
+  cache: {}
+  tags:
+    - public-runner001
+  environment:
+    name: prod
+  script:
+    - gitlab-ci check
+  only:
+    refs:
+      - pre_master
+    changes:
+      - package.json
+
+# 构建 dev
+deploy_to_dev:
+  extends: .base
+  stage: deploy
+  tags:
+    - dev-runner-001
+  environment:
+    name: dev
+  script:
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client git -y )'
+    - eval $(ssh-agent -s)
+    - echo "$RUNNER_DEV_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - gitlab-ci deploy -E dev
+  only:
+    - /^dev-.*$/
+  artifacts:
+    name: dist
+    paths:
+      - dist
+
+# 构建 test
+deploy_to_test:
+  extends: .base
+  stage: deploy
+  tags:
+    - public-runner001
+  environment:
+    name: test
+  script:
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client git -y )'
+    - eval $(ssh-agent -s)
+    - echo "$RUNNER_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - gitlab-ci deploy -E test
+  only:
+    refs:
+      - web
+    variables:
+      - $CI_COMMIT_REF_NAME =~ /^test-.*$/
+  artifacts:
+    name: dist
+    paths:
+      - dist
+
+# 构建 TAG
+deploy_to_prod:
+  extends: .base
+  stage: deploy
+  tags:
+    - public-runner001
+  environment:
+    name: prod
+  script:
+    - gitlab-ci tag
+  only:
+    - /^v[0-9]+(?:.[0-9]+)/
+  artifacts:
+    name: dist
+    paths:
+      - dist
+# docker镜像
+push_docker_image:
+  stage: docker
+  cache: {}
+  services:
+    - docker:dind
+  tags:
+    - public-runner001
+  only:
+    - /^v[0-9]+(?:.[0-9]+)+$/
+    - /^v[0-9]+(?:.[0-9]+)+-open$/
+    - /^v[0-9]+(?:.[0-9]+)+-dy$/
+    - /^v[0-9]+(?:.[0-9]+)+-ks$/
+    - test
+
+  script:
+    - cp dist/index.html ./index.html
+    - tail ./index.html
+    - docker login -u ${XD_CI_USER} -p ${XD_CI_PASSWD} ${REGISTRY_ZJK}
+    - docker build . -t ${IMAGE_NAME_ZJK}
+    - docker push ${IMAGE_NAME_ZJK}
+# 消息通知
+send_success_message:
+  extends: .base
+  stage: notice
+  cache: {}
+  tags:
+    - public-runner001
+  script:
+    - gitlab-ci message -R success
+  only:
+    refs:
+      - /^v[0-9]+(?:.[0-9]+)/
+      - /^v[0-9]+(?:.[0-9]+)+-ks$/
+      - /^v[0-9]+(?:.[0-9]+)+-open$/
+      - /^v[0-9]+(?:.[0-9]+)+-dy$/
+      - /^dev-.*$/
+      - web
+    variables:
+      - $CI_PIPELINE_SOURCE == "push"
+      - $CI_COMMIT_REF_NAME =~ /^test-.*$/
+  when: on_success
+
+send_error_message:
+  extends: .base
+  stage: notice
+  cache: {}
+  tags:
+    - public-runner001
+  script:
+    - gitlab-ci message -R fail
+  only:
+    refs:
+      - /^v[0-9]+(?:.[0-9]+)/
+      - /^dev-.*$/
+      - web
+    variables:
+      - $CI_PIPELINE_SOURCE == "push"
+      - $CI_COMMIT_REF_NAME =~ /^test-.*$/
+  when: on_failure
